@@ -1,7 +1,7 @@
 import curses
 import time
 from dataclasses import dataclass
-from typing import Self, Tuple
+from typing import Self
 
 from totp.config import DEFAULT_FG, BLANK_DEF, NICK_DEF, SLIDER_DEF, FANCY_SLIDER
 from totp.crypt import EntrySite
@@ -115,7 +115,7 @@ class FormattedText:
     color: str = DEFAULT_FG
 
     @classmethod
-    def from_tuple(cls, formatted: Tuple[str, str]) -> Self:
+    def from_tuple(cls, formatted: (str, str)) -> Self:
         text, color = formatted
         return cls(text=text, color=color)
 

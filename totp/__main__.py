@@ -10,7 +10,6 @@ import sys
 import time
 from curses import window, wrapper
 from functools import partial
-from typing import Dict
 
 from totp import _version, utils, tui, crypt
 from totp.config import CONFIG_DIR
@@ -18,10 +17,9 @@ from totp.config import CONFIG_DIR
 logger = utils.get_logger(__name__)
 
 # TODO: document code and functions
-# TODO: clean and ordered imports
 
 # WARN: drop exceptions, instead check cases and use logger
-# TODO: command-line utils, expand parse_args -> parse.py,
+# TODO: command-line utils, parse_args,
 #   - [x] totp (tui) -> tui
 #       - [x] get colors to work!
 #       - [_] navigation, user input and yank
@@ -77,10 +75,14 @@ def initialize_parsers() -> argparse.ArgumentParser:
     )
     ls_parser.set_defaults(func=ls_func)
 
-    get_parser = subparsers.add_parser("get", prog="totp get", help="get the TOTP code for an entry")
+    get_parser = subparsers.add_parser(
+        "get", prog="totp get", help="get the TOTP code for an entry"
+    )
     get_required = get_parser.add_argument_group("required arguments")
     get_required.add_argument("--site", type=str, required=True)
     get_required.add_argument("--nick", type=str, required=True)
+    get_optional = get_parser.add_argument_group("optional arguments")
+    get_optional.add_argument("-s", "--seconds", type=int, help="add a number in seconds to the time")
     get_auth = get_parser.add_argument_group("authentication")
     get_auth.add_argument(
         "-p", "--password", type=str, help="pass the password as a parameter"
@@ -148,6 +150,7 @@ def ls_func(args) -> None:
 
 def get_func(args) -> None:
     param_password = args["password"] if "password" in args.keys() else None
+    secs = args["seconds"] if "seconds" in args.keys() and args["seconds"] is not None else 0
     if _initialized or login(param_password):
         if not _initialized:
             logger.error("Password and salt not properly initialized.")
@@ -157,18 +160,21 @@ def get_func(args) -> None:
         password, salt = hashes["password"], hashes["salt"]
 
         entry = crypt.get_entry(password, salt, args["site"], args["nick"])
-        code = entry.get_totp_token()
-        print(code)
+        if entry is None:
+            logger.error("No matching entry found.")
+            return
+        else:
+            code = entry.get_totp_token(secs)
+            print(code)
     else:
         print("Incorrect password.")
-
 
 
 def _ask_for_password() -> str:
     return getpass.getpass(prompt="Password: ").strip()
 
 
-def _login(hash_dump: Dict, input: bytes) -> bool:
+def _login(hash_dump: dict, input: bytes) -> bool:
     global _initialized
     global password
     global salt
@@ -246,6 +252,7 @@ def run(sites, stdsrc: window) -> None:
 
 def main() -> None:
     # call arg parser and check
+    utils.check_config_health()
     parser = initialize_parsers()
     args = parser.parse_args()
 
@@ -261,4 +268,3 @@ if __name__ == "__main__":
     except Exception as ex:
         logger.error(f'Program ended due to exception: "{ex}".')
         raise ex
-

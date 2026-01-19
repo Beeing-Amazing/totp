@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.twofactor.totp import TOTP
 from dataclasses import dataclass
-from typing import Iterable, Dict
+from typing import Iterable
 
 from totp import utils
 from totp.config import HASH_FILE, SITES_TABLE
@@ -69,7 +69,7 @@ class EntrySite:
     site_hidden: bool = False
 
     # NOTE: as per RFC 6238
-    def get_totp_token(self) -> str:
+    def get_totp_token(self, seconds: int = 0) -> str:
         key = base64.b32decode(self.secret.encode())
         try:
             totp = TOTP(
@@ -79,13 +79,13 @@ class EntrySite:
                 time_step=30,
                 enforce_key_length=False,
             )
-            totp_token = totp.generate(time.time())
+            totp_token = totp.generate(time.time() + seconds)
             return totp_token.decode()
         except ValueError:
             raise InvalidSecretKey()
 
 
-def load_hash() -> Dict:
+def load_hash() -> dict:
     if os.path.exists(HASH_FILE):
         with open(HASH_FILE, "r") as f:
             try:
@@ -151,7 +151,7 @@ def get_entry(password: bytes, salt: bytes, site: str, nick: str) -> EntrySite:
         cr = Crypt(password=password, salt=salt)
         row = cur.execute(
             "SELECT secret, site, nick FROM SITES WHERE site = ? AND nick = ?; ",
-            (site, nick)
+            (site, nick),
         ).fetchone()
 
         if row:
@@ -193,10 +193,10 @@ def add_site(site: EntrySite, password: bytes, salt: bytes) -> None:
         logger.debug(f'Added entry "{site.site}" to table.')
 
 
-def derive(
-    password: bytes, salt: bytes = os.urandom(16)
-) -> bytes:
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=1_200_000)
+def derive(password: bytes, salt: bytes = os.urandom(16)) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(), length=32, salt=salt, iterations=1_200_000
+    )
     return kdf.derive(key_material=password)
 
 

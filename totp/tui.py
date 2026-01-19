@@ -2,7 +2,7 @@ import curses
 import time
 from curses import window
 from dataclasses import dataclass
-from typing import Self, List, Dict
+from typing import Self
 
 from totp import utils
 
@@ -20,9 +20,6 @@ from totp.config import (
 logger = utils.get_logger(__name__)
 
 # FIX: AuthWindow shouldnt modify stdsrc directly: textpad? newpad? to prevent overflow
-# FIX: raise exception if width not provided instead of ignore
-# WARN: properly assert config.py typings
-# TODO: box entries
 
 
 class SchemaTypeError(Exception):
@@ -42,7 +39,7 @@ class Schema:
 
     @classmethod
     def get_line_len(
-        cls, components: (List[FormattedText], List[FormattedText])
+        cls, components: (list[FormattedText], list[FormattedText])
     ) -> int:
         return sum(
             sum(len(comp.get_text()) for comp in components[x])
@@ -50,14 +47,15 @@ class Schema:
         )
 
     def format_entry_line(
-        self, line: List[Dict], values: Dict
-    ) -> (List[FormattedText], List[FormattedText]):
+        self, line: list[dict], values: dict, max_width: int
+    ) -> (list[FormattedText], list[FormattedText]):
         """ """
 
-        left_align: List[FormattedText] = []
-        right_align: List[FormattedText] = []
+        left_align: list[FormattedText] = []
+        right_align: list[FormattedText] = []
 
         for component in line:
+            component_keys = component.keys()
             try:
                 val = component["type"]
             except KeyError:
@@ -69,7 +67,7 @@ class Schema:
                 match val:
                     case "slider":
                         if (
-                            "width" in component.keys()
+                            "width" in component_keys
                             and type(component["width"]) is int
                         ):
                             width = component["width"]
@@ -77,41 +75,62 @@ class Schema:
                             raise SchemaTypeError(component="slider")
 
                         text = get_slider(width=width)
-
                     case "time":
+                        localtime = time.localtime()
+                        if (
+                            "format" in component_keys
+                            and type(component["format"]) is str
+                        ):
+                            text = time.strftime(component["format"], localtime)
+                        else:
+                            raise SchemaTypeError(component="time")
+                    case "token_time":
                         rem = 30 - time.time() % 30
                         if (
-                            "precision" in component.keys()
+                            "precision" in component_keys
                             and type(component["precision"]) is int
                         ):
                             prec = component["precision"]
                             text = repr(round(rem, prec))
                         else:
-                            raise SchemaTypeError(component="time")
-
+                            raise SchemaTypeError(component="token_time")
+                    case "filler":
+                        if (
+                            "filler" in component_keys
+                            and type(component["filler"]) is str
+                        ):
+                            text = component["filler"][0] * max_width
+                        else:
+                            raise SchemaTypeError(component="filler")
                     case "token":
                         text = values["token"]
 
                     case _:
-                        if "width" in component.keys():
+                        if "width" in component_keys:
                             try:
                                 width = int(component["width"])
-                                dif = width - len(text)
-                                text = text[: min(width, len(text))]
-                                if dif > 0:
-                                    text = text + (BLANK_DEF * dif)
+                                if width == -1:
+                                    dif = max_width - len(text)
+                                    text = text[:min(max_width, len(text))]
+                                    if dif > 0:
+                                        text = text + (values["blank"] * dif)
+                                else:
+                                    dif = width - len(text)
+                                    text = text[:min(max_width, width, len(text))]
+                                    if dif > 0:
+                                        text = text + (BLANK_DEF * dif)
                             except TypeError:
                                 raise SchemaTypeError(component=val)
                         else:
                             raise SchemaTypeError(component=val)
 
-                if "space_before" in component.keys():
+                if "space_before" in component_keys:
                     try:
                         space_before = int(component["space_before"])
                         text = (BLANK_DEF * space_before) + text
                     except TypeError:
                         logger.warn("Schema component ignored, no valid type found.")
-                if "space_after" in component.keys():
+                if "space_after" in component_keys:
                     try:
                         space_after = int(component["space_after"])
                         text = text + (BLANK_DEF * space_after)
@@ -119,12 +138,12 @@ class Schema:
                         logger.warn("Schema component ignored, no valid type found.")
 
                 color = DEFAULT_FG
-                if "color" in component.keys():
+                if "color" in component_keys:
                     try:
                         color = str(component["color"])
                     except TypeError:
-                        pass
-                if "alignment" in component.keys():
+                        logger.warn("Color component ignored, not a valid option.")
+                if "alignment" in component_keys:
                     try:
                         align = str(component["alignment"])
                         formatted = FormattedText(text=text, color=color)
@@ -135,7 +154,9 @@ class Schema:
                     except TypeError:
                         left_align.append(FormattedText(text=text, color=color))
                 else:
-                    logger.warn("Schema component ignored, no valid alignment found.")
+                    # treat as left-aligned by default
+                    formatted = FormattedText(text=text, color=color)
+                    left_align.append(formatted)
             else:
                 logger.warn(
                     f'Schema component ignored, unknown element type "{str(val)}"'
@@ -147,7 +168,7 @@ class Schema:
         self,
         src: window,
         start_y: int,
-        components: (List[FormattedText], List[FormattedText]),
+        components: (list[FormattedText], list[FormattedText]),
     ) -> None:
         _, maxx = src.getmaxyx()
         pos_x = 0
@@ -184,6 +205,8 @@ class Schema:
     def draw_entry(self, src: window, start_y: int, entry: EntrySite) -> None:
         """ """
 
+        _y, _x = src.getmaxyx()
+
         try:
             totp_token = entry.get_totp_token()
         except InvalidSecretKey as exc:
@@ -196,24 +219,27 @@ class Schema:
             "nick": entry.nick,
             "site": entry.site,
             "time": None,
+            "token_time": None,
             "token": totp_token,
             "slider": None,
             "blank": BLANK_DEF,
+            "filler": NICK_DEF
         }
 
         for off, (_, line) in enumerate(self.format.items()):
-            ll = self.format_entry_line(line=line, values=values)
+            ll = self.format_entry_line(line=line, values=values, max_width = _x - 1)
             self.draw_line(src=src, start_y=start_y + off, components=ll)
 
     def format_statusline(
-        self, line: List[Dict], values: Dict
-    ) -> (List[FormattedText], List[FormattedText]):
+        self, line: list[dict], values: dict, max_width: int
+    ) -> (list[FormattedText], list[FormattedText]):
         """ """
 
-        left_align: List[FormattedText] = []
-        right_align: List[FormattedText] = []
+        left_align: list[FormattedText] = []
+        right_align: list[FormattedText] = []
 
         for component in line:
+            component_keys = component.keys()
             try:
                 val = component["type"]
             except KeyError:
@@ -225,7 +251,7 @@ class Schema:
                 match val:
                     case "slider":
                         if (
-                            "width" in component.keys()
+                            "width" in component_keys
                             and type(component["width"]) is int
                         ):
                             width = component["width"]
@@ -235,7 +261,7 @@ class Schema:
                     case "time":
                         localtime = time.localtime()
                         if (
-                            "format" in component.keys()
+                            "format" in component_keys
                             and type(component["format"]) is str
                         ):
                             text = time.strftime(component["format"], localtime)
@@ -244,21 +270,30 @@ class Schema:
                     case "token_time":
                         rem = 30 - time.time() % 30
                         if (
-                            "precision" in component.keys()
+                            "precision" in component_keys
                             and type(component["precision"]) is int
                         ):
                             prec = component["precision"]
                             text = repr(round(rem, prec))
                         else:
                             raise SchemaTypeError(component="token_time")
+                    case "filler":
+                        if (
+                            "filler" in component_keys
+                            and type(component["filler"]) is str
+                        ):
+                            text = component["filler"][0] * max_width
+                        else:
+                            raise SchemaTypeError(component="filler")
 
-                if "space_before" in component.keys():
+
+                if "space_before" in component_keys:
                     try:
                         space_before = int(component["space_before"])
                         text = (BLANK_DEF * space_before) + text
                     except TypeError:
                         logger.warn("Schema component ignored, no valid type found.")
-                if "space_after" in component.keys():
+                if "space_after" in component_keys:
                     try:
                         space_after = int(component["space_after"])
                         text = text + (BLANK_DEF * space_after)
@@ -266,12 +301,12 @@ class Schema:
                         logger.warn("Schema component ignored, no valid type found.")
 
                 color = DEFAULT_FG
-                if "color" in component.keys():
+                if "color" in component_keys:
                     try:
                         color = str(component["color"])
                     except TypeError:
                         pass
-                if "alignment" in component.keys():
+                if "alignment" in component_keys:
                     try:
                         align = str(component["alignment"])
                         formatted = FormattedText(text=text, color=color)
@@ -282,7 +317,8 @@ class Schema:
                     except TypeError:
                         left_align.append(FormattedText(text=text, color=color))
                 else:
-                    logger.warn("Schema component ignored, no valid alignment found.")
+                    formatted = FormattedText(text=text, color=color)
+                    left_align.append(formatted)
             else:
                 logger.warn(
                     f'Schema component ignored, unknown element type "{str(val)}"'
@@ -297,10 +333,10 @@ class Schema:
         len_status = len(self.statusline)
         start_y = max(0, _y - len_status)
 
-        values = {"time": None, "token_time": None, "slider": None}
+        values = {"time": None, "token_time": None, "slider": None, "filler": NICK_DEF}
 
         for off, (_, line) in enumerate(self.statusline.items()):
-            ll = self.format_statusline(line=line, values=values)
+            ll = self.format_statusline(line=line, values=values, max_width = _x - 1)
             self.draw_line(src=src, start_y=start_y + off, components=ll)
 
     def entry_offset(self) -> int:
@@ -310,7 +346,7 @@ class Schema:
 class AuthWindow:
     def __init__(self, stdsrc: window) -> None:
         self.orig = stdsrc
-        self.sites: List[EntrySite] = []
+        self.sites: list[EntrySite] = []
         self.schema = Schema()
         self.pad = None
         init_colors()
