@@ -19,8 +19,6 @@ from totp.config import (
 
 logger = utils.get_logger(__name__)
 
-# FIX: AuthWindow shouldnt modify stdsrc directly: textpad? newpad? to prevent overflow
-
 
 class SchemaTypeError(Exception):
     def __init__(self, component: str) -> None:
@@ -111,12 +109,12 @@ class Schema:
                                 width = int(component["width"])
                                 if width == -1:
                                     dif = max_width - len(text)
-                                    text = text[:min(max_width, len(text))]
+                                    text = text[: min(max_width, len(text))]
                                     if dif > 0:
                                         text = text + (values["blank"] * dif)
                                 else:
                                     dif = width - len(text)
-                                    text = text[:min(max_width, width, len(text))]
+                                    text = text[: min(max_width, width, len(text))]
                                     if dif > 0:
                                         text = text + (BLANK_DEF * dif)
                             except TypeError:
@@ -169,40 +167,58 @@ class Schema:
         src: window,
         start_y: int,
         components: (list[FormattedText], list[FormattedText]),
+        reverse: bool = False,
     ) -> None:
         _, maxx = src.getmaxyx()
         pos_x = 0
+
         if Schema.get_line_len(components) <= maxx:
             for comp in components[0]:
                 comp_off = comp.len()
                 src.addstr(
-                    start_y, pos_x, comp.get_text(), curses.color_pair(comp.get_color())
+                    start_y,
+                    pos_x,
+                    comp.get_text(),
+                    curses.color_pair(comp.get_color(reverse=reverse)),
                 )
                 pos_x += comp_off
             filler = maxx - pos_x - sum(comp.len() for comp in components[1])
-            src.addstr(start_y, pos_x, BLANK_DEF * filler)
+            src.addstr(
+                start_y, pos_x, BLANK_DEF * filler, curses.A_REVERSE if reverse else 0
+            )
             pos_x += filler
             for comp in components[1]:
                 comp_off = comp.len()
                 src.addstr(
-                    start_y, pos_x, comp.get_text(), curses.color_pair(comp.get_color())
+                    start_y,
+                    pos_x,
+                    comp.get_text(),
+                    curses.color_pair(comp.get_color(reverse=reverse)),
                 )
                 pos_x += comp_off
         else:
             for comp in components[0]:
                 comp_off = comp.len()
                 src.addstr(
-                    start_y, pos_x, comp.get_text(), curses.color_pair(comp.get_color())
+                    start_y,
+                    pos_x,
+                    comp.get_text(),
+                    curses.color_pair(comp.get_color(reverse=reverse)),
                 )
                 pos_x += comp_off
             for comp in components[1]:
                 comp_off = comp.len()
                 src.addstr(
-                    start_y, pos_x, comp.get_text(), curses.color_pair(comp.get_color())
+                    start_y,
+                    pos_x,
+                    comp.get_text(),
+                    curses.color_pair(comp.get_color(reverse=reverse)),
                 )
                 pos_x += comp_off
 
-    def draw_entry(self, src: window, start_y: int, entry: EntrySite) -> None:
+    def draw_entry(
+        self, src: window, start_y: int, entry: EntrySite, selected: bool = False
+    ) -> None:
         """ """
 
         _y, _x = src.getmaxyx()
@@ -223,12 +239,14 @@ class Schema:
             "token": totp_token,
             "slider": None,
             "blank": BLANK_DEF,
-            "filler": NICK_DEF
+            "filler": NICK_DEF,
         }
 
         for off, (_, line) in enumerate(self.format.items()):
-            ll = self.format_entry_line(line=line, values=values, max_width = _x - 1)
-            self.draw_line(src=src, start_y=start_y + off, components=ll)
+            ll = self.format_entry_line(line=line, values=values, max_width=_x - 1)
+            self.draw_line(
+                src=src, start_y=start_y + off, components=ll, reverse=selected
+            )
 
     def format_statusline(
         self, line: list[dict], values: dict, max_width: int
@@ -286,7 +304,6 @@ class Schema:
                         else:
                             raise SchemaTypeError(component="filler")
 
-
                 if "space_before" in component_keys:
                     try:
                         space_before = int(component["space_before"])
@@ -336,28 +353,36 @@ class Schema:
         values = {"time": None, "token_time": None, "slider": None, "filler": NICK_DEF}
 
         for off, (_, line) in enumerate(self.statusline.items()):
-            ll = self.format_statusline(line=line, values=values, max_width = _x - 1)
+            ll = self.format_statusline(line=line, values=values, max_width=_x - 1)
             self.draw_line(src=src, start_y=start_y + off, components=ll)
 
     def entry_offset(self) -> int:
-        return len(self.format.items())
+        return len(self.format)
 
 
 class AuthWindow:
     def __init__(self, stdsrc: window) -> None:
-        self.orig = stdsrc
+        self.orig: window = stdsrc
+        self.smax: tuple[int, int] = self.orig.getmaxyx()
         self.sites: list[EntrySite] = []
         self.schema = Schema()
         self.pad = None
+        self.selected_entry = 0
+        self.scroll_y = 0
         init_colors()
 
     def update_pad(self) -> None:
-        _y, _x = self.orig.getmaxyx()
+        max_y, max_x = self.orig.getmaxyx()
         h = len(self.sites) * self.schema.entry_offset()
-        try:
-            self.pad = curses.newpad(h, _x)
-        except curses.error:
-            raise RuntimeError("Failed to create newpad")
+
+        # only update pad on changed dimensions
+        if self.pad is None or self.smax != (max_y, max_x):
+            self.smax = (max_y, max_x)
+
+            try:
+                self.pad = curses.newpad(h, max_x)
+            except curses.error:
+                raise RuntimeError("Failed to create newpad")
 
     def draw(self) -> None:
         try:
@@ -370,7 +395,10 @@ class AuthWindow:
         for i, site in enumerate(self.sites):
             try:
                 y = self.schema.entry_offset() * i
-                self.schema.draw_entry(src=self.pad, start_y=y, entry=site)
+                selected = self.selected_entry == i
+                self.schema.draw_entry(
+                    src=self.pad, start_y=y, entry=site, selected=selected
+                )
             except curses.error:
                 pass
         try:
@@ -379,10 +407,33 @@ class AuthWindow:
             pass
 
         max_y, max_x = self.orig.getmaxyx()
-        h = max_y - (1 + len(self.schema.statusline))
-        w = max_x - 1
-        self.pad.refresh(0, 0, 0, 0, h, w)
+
+        entry_h = self.schema.entry_offset()
+        cursor_top = self.selected_entry * self.schema.entry_offset()
+        cursor_bottom = cursor_top + entry_h
+
+        pad_height = len(self.sites) * entry_h
+        view_height = max_y - (1 + len(self.schema.statusline))
+
+        view_top = self.scroll_y
+        view_bottom = view_top + view_height
+
+        if cursor_top < view_top:
+            view_top = cursor_top
+        elif cursor_bottom > view_bottom:
+            view_top = cursor_bottom - view_height
+
+        view_top = max(0, min(view_top, max(0, pad_height - view_height)))
+        self.scroll_y = view_top
+
+        self.pad.refresh(self.scroll_y, 0, 0, 0, view_height, max_x - 1)
         self.orig.refresh()
 
     def add_site(self, site: EntrySite) -> None:
         self.sites.append(site)
+
+    def update_cursor(self, ch: int):
+        if ch == ord("j"):
+            self.selected_entry = min(self.selected_entry + 1, len(self.sites) - 1)
+        elif ch == ord("k"):
+            self.selected_entry = max(self.selected_entry - 1, 0)

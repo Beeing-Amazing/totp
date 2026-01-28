@@ -51,18 +51,14 @@ ENTRY_SCHEMA: dict = {
         {"type": "nick", "width": 32, "alignment": "left", "space_after": 8},
         {"type": "token_time", "precision": 1, "alignment": "right"},
     ],
-    "border": [
-        {"type": "filler", "filler": " "}
-    ]
+    "border": [{"type": "filler", "filler": " "}],
 }
 
 # defines how the status bar at the bottom is displayed
 STATUSLINE_SCHEMA: dict = {
-    "border": [
-        {"type": "filler", "filler": "-"}
-    ],
+    "border": [{"type": "filler", "filler": "-"}],
     "line1": [
         {"type": "time", "format": "%H:%M:%S", "alignment": "left"},
-        {"type": "slider", "width": 16, "alignment": "right"}
+        {"type": "slider", "width": 16, "alignment": "right"},
     ],
 }

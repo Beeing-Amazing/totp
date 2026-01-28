@@ -19,14 +19,7 @@ logger = utils.get_logger(__name__)
 # TODO: document code and functions
 
 # WARN: drop exceptions, instead check cases and use logger
-# TODO: command-line utils, parse_args,
-#   - [x] totp (tui) -> tui
-#       - [x] get colors to work!
-#       - [_] navigation, user input and yank
-#       - [_] longer lists than window size
-#   - [x] totp add
-#   - [x] totp ls
-#   - [x] totp get
+# TODO: command-line utils
 #   - [_] totp del
 #   - [_] totp --delete-all
 #   - [_] totp dump
@@ -82,7 +75,9 @@ def initialize_parsers() -> argparse.ArgumentParser:
     get_required.add_argument("--site", type=str, required=True)
     get_required.add_argument("--nick", type=str, required=True)
     get_optional = get_parser.add_argument_group("optional arguments")
-    get_optional.add_argument("-s", "--seconds", type=int, help="add a number in seconds to the time")
+    get_optional.add_argument(
+        "-s", "--seconds", type=int, help="add a number in seconds to the time"
+    )
     get_auth = get_parser.add_argument_group("authentication")
     get_auth.add_argument(
         "-p", "--password", type=str, help="pass the password as a parameter"
@@ -150,7 +145,11 @@ def ls_func(args) -> None:
 
 def get_func(args) -> None:
     param_password = args["password"] if "password" in args.keys() else None
-    secs = args["seconds"] if "seconds" in args.keys() and args["seconds"] is not None else 0
+    secs = (
+        args["seconds"]
+        if "seconds" in args.keys() and args["seconds"] is not None
+        else 0
+    )
     if _initialized or login(param_password):
         if not _initialized:
             logger.error("Password and salt not properly initialized.")
@@ -192,15 +191,6 @@ def _login(hash_dump: dict, input: bytes) -> bool:
     salt = hash_dump["salt"]
 
     res = crypt.verify(password=input, hash=password, salt=salt)
-    if res:
-        # valid password
-        # logger.info("Correct password.")
-        pass
-    else:
-        # invalid password
-        # logger.info("Incorrect password.")
-        pass
-
     _initialized = True
     return res
 
@@ -237,17 +227,16 @@ def run(sites, stdsrc: window) -> None:
         src.add_site(entry)
 
     while True:
+        c = stdsrc.getch()
+        if c == ord("q"):
+            break
+
         try:
+            src.update_cursor(c)
             src.draw()
         except RuntimeError as ex:
             logger.error(f'curses exception: "{ex}".')
             raise ex
-
-        c = stdsrc.getch()
-        if c == ord("q"):
-            break
-        elif c != -1:  # getch returns -1 if no key is pressed
-            pass
 
 
 def main() -> None:
@@ -263,8 +252,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as ex:
-        logger.error(f'Program ended due to exception: "{ex}".')
-        raise ex
+    main()

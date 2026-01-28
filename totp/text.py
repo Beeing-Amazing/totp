@@ -15,7 +15,6 @@ def_colors = {
     "blue": 5,
     "magenta": 6,
     "cyan": 7,
-    "black": 8,
 }
 
 
@@ -27,14 +26,20 @@ def init_colors():
     curses.init_pair(5, curses.COLOR_BLUE, curses.COLOR_BLACK)
     curses.init_pair(6, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
     curses.init_pair(7, curses.COLOR_CYAN, curses.COLOR_BLACK)
-    curses.init_pair(8, curses.COLOR_BLACK, curses.COLOR_BLACK)
+    curses.init_pair(8, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(9, curses.COLOR_BLACK, curses.COLOR_RED)
+    curses.init_pair(10, curses.COLOR_GREEN, curses.COLOR_GREEN)
+    curses.init_pair(11, curses.COLOR_YELLOW, curses.COLOR_YELLOW)
+    curses.init_pair(12, curses.COLOR_BLUE, curses.COLOR_BLUE)
+    curses.init_pair(13, curses.COLOR_MAGENTA, curses.COLOR_MAGENTA)
+    curses.init_pair(14, curses.COLOR_CYAN, curses.COLOR_CYAN)
 
 
-def color(col: str) -> int:
+def color(col: str, reverse: bool) -> int:
     col = col.lower()
     try:
         if col in def_colors.keys():
-            return def_colors[col]
+            return def_colors[col] + (len(def_colors) if reverse else 0)
         if str(DEFAULT_FG) in def_colors.keys():
             return def_colors[DEFAULT_FG]
     except TypeError:
@@ -122,8 +127,8 @@ class FormattedText:
     def get_text(self) -> str:
         return str(self.text)
 
-    def get_color(self) -> int:
-        return color(self.color)
+    def get_color(self, reverse: bool) -> int:
+        return color(self.color, reverse)
 
     def len(self) -> int:
         return len(self.text)
