@@ -2,18 +2,14 @@ Generate, view and store TOTP codes from the command line.
 Data is encrypted with a password.
 
 ## Install
-You can install via `pip`:
+You can install via `pipx`:
 ```
-pip install totp-tui
+pipx install totp-tui
 ```
 
 ## Usage
 ### Terminal User Interface
 Opens ncurses TUI in current terminal
-```
-totp tui
-```
-or just
 ```
 totp
 ```

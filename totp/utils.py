@@ -1,4 +1,6 @@
-""" """
+"""
+Utility functions, including logger config
+"""
 
 import logging
 import os

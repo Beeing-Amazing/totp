@@ -5,6 +5,7 @@ import base64
 import curses
 import logging
 import getpass
+import pyperclip
 import os
 import sys
 import time
@@ -35,7 +36,6 @@ def initialize_parsers() -> argparse.ArgumentParser:
         prog="totp",
         description="totp authentication in the terminal",
         add_help=True,
-        # allow_abbrev=True,
         usage="totp command [command options]",
     )
     parser.add_argument("-v", "--version", action="version", version=_version())
@@ -215,7 +215,12 @@ def login(input_password: str) -> bool:
 
 
 def run(sites, stdsrc: window) -> None:
-    # logger.info("App started.")
+    """
+    Main program loop
+    Args:
+        sites: list[EntrySite]
+        stdsrc: curses.window
+    """
 
     stdsrc.nodelay(True)
     curses.start_color()
@@ -228,8 +233,10 @@ def run(sites, stdsrc: window) -> None:
 
     while True:
         c = stdsrc.getch()
-        if c == ord("q"):
+        if c == ord("q"):  # (q)uit tui
             break
+        elif c == ord("y"):  # (y)ank currently hovered entry's code
+            pyperclip.copy(src.get_code())
 
         try:
             src.update_cursor(c)

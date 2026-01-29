@@ -344,7 +344,9 @@ class Schema:
         return (left_align, right_align)
 
     def draw_statusline(self, src: window) -> None:
-        """ """
+        """
+        Draw the statusline at the bottom of the screen, refreshing all of its components
+        """
 
         _y, _x = src.getmaxyx()
         len_status = len(self.statusline)
@@ -372,6 +374,10 @@ class AuthWindow:
         init_colors()
 
     def update_pad(self) -> None:
+        """
+        Updates pad's dimensions in case the window has changed size
+        """
+
         max_y, max_x = self.orig.getmaxyx()
         h = len(self.sites) * self.schema.entry_offset()
 
@@ -385,6 +391,10 @@ class AuthWindow:
                 raise RuntimeError("Failed to create newpad")
 
     def draw(self) -> None:
+        """
+        Refresh the screen and updates all components
+        """
+
         try:
             self.update_pad()
             self.pad.erase()
@@ -432,7 +442,19 @@ class AuthWindow:
     def add_site(self, site: EntrySite) -> None:
         self.sites.append(site)
 
+    def get_code(self) -> str:
+        """
+        Return TOTP code for hovered entry
+        """
+
+        assert self.selected_entry >= 0 and self.selected_entry < len(self.sites)
+        return self.sites[self.selected_entry].get_totp_token()
+
     def update_cursor(self, ch: int):
+        """
+        Moves the cursor downwards if ch is 'j', and upwards if ch is 'k'
+        """
+
         if ch == ord("j"):
             self.selected_entry = min(self.selected_entry + 1, len(self.sites) - 1)
         elif ch == ord("k"):
