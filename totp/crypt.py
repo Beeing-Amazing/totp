@@ -25,23 +25,16 @@ logger = utils.get_logger(__name__)
 # NOTE: crypt(), decrypt() for 2FA (TOTP) secret encryption
 # NOTE: derive(), verify() for main password hashing
 
-"""
-password = load_hash()["password"]
-salt = load_hash()["salt"]
-input = ... userinput
-if check_hash(input,password,salt)
-
-return read_table()
-"""
-
 table_create_query = """
     CREATE TABLE IF NOT EXISTS SITES (
         secret VARCHAR(255) NOT NULL,
         site VARCHAR(255) NOT NULL,
         nick VARCHAR(255),
+        priority MEDIUMINT(255),
         PRIMARY KEY (site, nick)
     );
 """
+EXPECTED_COLS = {"secret","site","nick","priority"}
 
 
 class CryptTokenError(Exception):
@@ -67,6 +60,7 @@ class EntrySite:
     site: str
     nick_hidden: bool = False
     site_hidden: bool = False
+    priority: int = 0
 
     # NOTE: as per RFC 6238
     def get_totp_token(self, seconds: int = 0) -> str:
@@ -84,6 +78,9 @@ class EntrySite:
         except ValueError:
             raise InvalidSecretKey()
 
+    def __lt__(self, other) -> bool:
+        return self.priority < other.priority
+
 
 def load_hash() -> dict:
     if os.path.exists(HASH_FILE):
@@ -100,7 +97,7 @@ def load_hash() -> dict:
                 logger.error("Missing expected keys in HASH_FILE.")
                 return None
     else:
-        # TODO: create file
+        # create new file handled in main:login
         logger.warning("HASH_FILE not found.")
         return None
 
@@ -125,12 +122,17 @@ def read_table(password: bytes, salt: bytes) -> Iterable[EntrySite]:
 
         cur.execute(table_create_query)
 
+        cols_cur = conn.execute("SELECT * FROM SITES; ")
+        names = { desc[0] for desc in cols_cur.description }
+        if EXPECTED_COLS != names:
+            raise ValueError("Table has one or more invalid columns.")
+
         cr = Crypt(password=password, salt=salt)
-        res = cur.execute("SELECT secret, site, nick FROM SITES ORDER BY site; ")
+        res = cur.execute("SELECT secret, site, nick, priority FROM SITES ORDER BY site; ")
 
         for row in res:
             try:
-                encrypted, site, nick = row
+                encrypted, site, nick, priority = row
                 secret = cr.decrypt(data=encrypted).decode()
                 yield EntrySite(
                     secret=secret,
@@ -138,10 +140,10 @@ def read_table(password: bytes, salt: bytes) -> Iterable[EntrySite]:
                     nick_hidden=False,
                     site=site,
                     site_hidden=False,
+                    priority=priority,
                 )
             except CryptTokenError:
                 logger.warning("Invalid entry found in table.")
-                pass
 
 
 def get_entry(password: bytes, salt: bytes, site: str, nick: str) -> EntrySite:
@@ -150,13 +152,13 @@ def get_entry(password: bytes, salt: bytes, site: str, nick: str) -> EntrySite:
 
         cr = Crypt(password=password, salt=salt)
         row = cur.execute(
-            "SELECT secret, site, nick FROM SITES WHERE site = ? AND nick = ?; ",
+            "SELECT secret, site, nick, priority FROM SITES WHERE site = ? AND nick = ?; ",
             (site, nick),
         ).fetchone()
 
         if row:
             try:
-                encrypted, site, nick = row
+                encrypted, site, nick, priority = row
                 secret = cr.decrypt(data=encrypted).decode()
                 return EntrySite(
                     secret=secret,
@@ -164,10 +166,31 @@ def get_entry(password: bytes, salt: bytes, site: str, nick: str) -> EntrySite:
                     nick_hidden=False,
                     site=site,
                     site_hidden=False,
+                    priority=priority
                 )
             except CryptTokenError:
                 logger.warning("Invalid entry found in table.")
-                pass
+        else:
+            logger.warning("No matching entry found.")
+            return None
+
+
+# TODO: finish
+def del_entry(password: bytes, salt: bytes, site: str, nick: str) -> None:
+    with sqlite3.connect(SITES_TABLE) as conn:
+        cur = conn.cursor()
+
+        cr = Crypt(password=password, salt=salt)
+        row = cur.execute(
+            "",
+            (site, nick),
+        )
+
+        if row:
+            try:
+                ...
+            except CryptTokenError:
+                logger.warning("Invalid entry found in table.")
         else:
             logger.warning("No matching entry found.")
             return None
@@ -183,8 +206,8 @@ def add_site(site: EntrySite, password: bytes, salt: bytes) -> None:
         encrypted = cr.encrypt(site.secret)
         try:
             cur.execute(
-                "INSERT INTO SITES (secret, site, nick) VALUES (?, ?, ?); ",
-                (encrypted, site.site, site.nick),
+                "INSERT INTO SITES (secret, site, nick, priority) VALUES (?, ?, ?, ?); ",
+                (encrypted, site.site, site.nick, site.priority),
             )
         except sqlite3.IntegrityError:
             logger.error("Site already present.")

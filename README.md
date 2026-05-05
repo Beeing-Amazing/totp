@@ -11,6 +11,10 @@ pipx install totp-tui
 ### Terminal User Interface
 Opens ncurses TUI in current terminal
 ```
+totp tui
+```
+or just
+```
 totp
 ```
 

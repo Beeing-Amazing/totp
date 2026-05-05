@@ -21,7 +21,7 @@ logger = utils.get_logger(__name__)
 
 # WARN: drop exceptions, instead check cases and use logger
 # TODO: command-line utils
-#   - [_] totp del
+#   - [x] totp del
 #   - [_] totp --delete-all
 #   - [_] totp dump
 
@@ -55,6 +55,10 @@ def initialize_parsers() -> argparse.ArgumentParser:
     add_required.add_argument("--site", type=str, required=True)
     add_required.add_argument("--nick", type=str, required=True)
     add_required.add_argument("--secret", type=str, required=True)
+    add_optional = add_parser.add_argument_group("optional arguments")
+    add_optional.add_argument(
+        "--priority", type=int, help="set order priority for tui"
+    )
     add_auth = add_parser.add_argument_group("authentication")
     add_auth.add_argument(
         "-p", "--password", type=str, help="pass the password as a parameter"
@@ -84,6 +88,18 @@ def initialize_parsers() -> argparse.ArgumentParser:
     )
     get_parser.set_defaults(func=get_func)
 
+    del_parser = subparsers.add_parser("del", prog="totp del", help="delete an entry")
+    del_required = del_parser.add_argument_group("required arguments")
+    del_required.add_argument("--site", type=str, required=True)
+    del_required.add_argument("--nick", type=str, required=True)
+    del_required.add_argument("--secret", type=str, required=True)
+    del_auth = del_parser.add_argument_group("authentication")
+    del_auth.add_argument(
+        "-p", "--password", type=str, help="pass the password as a parameter"
+    )
+    add_parser.set_defaults(func=del_func)
+
+
     return parser
 
 
@@ -106,6 +122,7 @@ def tui_func(args) -> None:
         wrapper(partial(run, sites))
     else:
         print("Incorrect password.")
+        exit(1)
 
 
 def add_func(args) -> None:
@@ -141,13 +158,15 @@ def ls_func(args) -> None:
             print(f"{entry.nick}, {entry.site}")
     else:
         print("Incorrect password.")
+        exit(1)
 
 
 def get_func(args) -> None:
-    param_password = args["password"] if "password" in args.keys() else None
+    args_keys = args.keys()
+    param_password = args["password"] if "password" in args_keys else None
     secs = (
         args["seconds"]
-        if "seconds" in args.keys() and args["seconds"] is not None
+        if "seconds" in args_keys and args["seconds"] is not None
         else 0
     )
     if _initialized or login(param_password):
@@ -167,6 +186,26 @@ def get_func(args) -> None:
             print(code)
     else:
         print("Incorrect password.")
+        exit(1)
+
+
+def del_func(args) -> None:
+    param_password = args["password"] if "password" in args.keys() else None
+    if _initialized or login(param_password):
+        if not _initialized:
+            logger.error("Password and salt not properly initialized.")
+            return
+
+        hashes = crypt.load_hash()
+        password, salt = hashes["password"], hashes["salt"]
+
+        sites = list(crypt.read_table(password, salt))
+
+        for entry in sites:
+            print(f"{entry.nick}, {entry.site}")
+    else:
+        print("Incorrect password.")
+        exit(1)
 
 
 def _ask_for_password() -> str:
@@ -200,6 +239,7 @@ def login(input_password: str) -> bool:
     match hash_dump:
         case None:
             # create new hash
+            # TODO: inform user what is happening
             os.makedirs(CONFIG_DIR, exist_ok=True)
             random_salt = os.urandom(16)  # sets salt randomly
             input = _ask_for_password() if input_password is None else input_password
@@ -230,12 +270,14 @@ def run(sites, stdsrc: window) -> None:
 
     for entry in sites:
         src.add_site(entry)
+    src.sites.sort(reverse=True)
 
     while True:
         c = stdsrc.getch()
         if c == ord("q"):  # (q)uit tui
             break
         elif c == ord("y"):  # (y)ank currently hovered entry's code
+            # TODO: flash
             pyperclip.copy(src.get_code())
 
         try:
